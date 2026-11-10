@@ -1,16 +1,13 @@
-## Hi there 👋
+# REYDLEON
 
-<!--
-**reydleon/reydleon** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+**Paulo Reydleon** | Civil & Rail Engineering | PMP
 
-Here are some ideas to get you started:
+Engineering professional focused on rail infrastructure, track installation, special trackwork, and construction delivery.
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+### [Visit my official website — reydleon.ca →](https://reydleon.ca)
+
+Explore my professional experience, projects, credentials, and CV at **[reydleon.ca](https://reydleon.ca)**.
+
+---
+
+*Reydleon is my primary professional brand. This GitHub profile is a gateway to my official website.*
