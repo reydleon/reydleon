@@ -23,3 +23,7 @@ Explore my professional experience, projects, credentials, and CV at **[reydleon
 - **Primary language:** Undetermined (documentation/profile repository).
 - **Implementation classification:** Unverified.
 - **Verification:** Primary language is based on GitHub language-filtered repository search (2026-11-14). Architecture notes are based on existing README documentation; source-level class verification remains pending unless explicitly documented above.
+
+## GOLDEN RULE — ONE CLASS-BASED PYTHON FILE
+
+For each repository, keep all production Python implementation in one canonical `.py` file, organized as multiple classes using object-oriented design. Do not split production behavior across separate Python modules. Test files may remain separate under `tests/`; entry points may remain only as thin delegates to the canonical file, with no duplicate implementation. When consolidating an existing project, preserve its behavior and update every deployment command, container build, and runtime import that points to the old modules.
