@@ -27,3 +27,8 @@ Explore my professional experience, projects, credentials, and CV at **[reydleon
 ## GOLDEN RULE — ONE CLASS-BASED PYTHON FILE
 
 For each repository, keep all production Python implementation in one canonical `.py` file, organized as multiple classes using object-oriented design. Do not split production behavior across separate Python modules. Test files may remain separate under `tests/`; entry points may remain only as thin delegates to the canonical file, with no duplicate implementation. When consolidating an existing project, preserve its behavior and update every deployment command, container build, and runtime import that points to the old modules.
+
+
+## GOLDEN RULE — Revision Logic
+
+Every release revision MUST follow `vYYYYMMDD[L][N]`, where `YYYYMMDD` is the release date, `[L]` is a lowercase letter (`a`–`z`), and `[N]` is a positive integer starting at 1. Examples: `v20261122a1`, `v20261122a2`, `v20261122b1`. Never add extra leading zeros, separators, or spaces. Each new release must have a unique revision identifier; use a new date when the release date changes. Display the actual current revision in the application footer where applicable, and keep README release history consistent with actual releases. Do not claim a release occurred merely because this rule was documented.
