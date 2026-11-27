@@ -1,0 +1,193 @@
+# ReyVortex repository QA v0.2a; canonical template from reydleon/_reyvortex_qayml_mytest001a1
+# Template revision: 4660f97b7d940924aba55e1c507567b602e2f1ec
+name: ReyVortex QA
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      status: ${{ steps.check.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        if: ${{ hashFiles('package.json') != '' }}
+        with:
+          node-version: '22'
+      - name: Verify revision and repository-specific acceptance
+        id: check
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/reyvortex"
+          python3 - <<'PY'
+          import ast, csv, hashlib, html.parser, importlib.util, json, os, pathlib, re, subprocess, sys, tempfile
+          from xml.etree import ElementTree
+          root = pathlib.Path.cwd()
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "reyvortex"
+          repo = os.environ["GITHUB_REPOSITORY"]
+          name = repo.split("/")[-1]
+          checks = {}
+          status = "INCOMPLETE"
+          scope = "CI_ONLY"
+          sha = tree = None
+
+          def require(condition, message):
+              if not condition:
+                  raise RuntimeError(message)
+
+          def command(label, args, timeout=240):
+              stdout, stderr = out / (label + ".stdout.log"), out / (label + ".stderr.log")
+              with stdout.open("wb") as a, stderr.open("wb") as b:
+                  result = subprocess.run(args, stdout=a, stderr=b, timeout=timeout)
+              checks[label] = {"exit_code": result.returncode, "command": args}
+              require(result.returncode == 0, label + " failed: " + str(result.returncode))
+              return stdout.read_bytes(), stderr.read_bytes()
+
+          def unit(label, args):
+              a, b = command(label, [sys.executable, "-m", "unittest", *args])
+              log = (a+b).decode("utf-8", errors="replace")
+              counts = re.findall(r"(?m)^Ran (\d+) tests? in ", log)
+              skipped = sum(int(x) for x in re.findall(r"skipped=(\d+)", log))
+              count = int(counts[-1]) if counts else 0
+              checks[label].update(test_count=count, skipped=skipped)
+              return max(0, count-skipped)
+
+          try:
+              sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+              tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip()
+              require(sha == os.environ["GITHUB_SHA"], "Revision mismatch")
+              files = [pathlib.Path(os.fsdecode(x)) for x in subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0") if x]
+              require(bool(files), "Empty repository")
+              sources = [p for p in files if p.suffix == ".py" and p.is_file()]
+              for p in sources:
+                  ast.parse(p.read_bytes(), filename=str(p))
+              checks["python_syntax"] = {"count": len(sources)}
+              checks["tracked_files"] = len(files)
+              if pathlib.Path("package.json").is_file():
+                  scope = "NODE_CI"
+                  command("dependencies", ["npm", "ci" if pathlib.Path("package-lock.json").is_file() else "install", "--no-audit", "--no-fund"])
+                  if name == "maps":
+                      command("build", ["npm", "run", "build"])
+                      a, b = command("tests", ["npm", "test"])
+                  elif name == "task0004":
+                      a, b = command("tests", ["npm", "run", "test:clock"])
+                  elif name == "TASK2013a":
+                      command("build", ["npm", "run", "build"])
+                      a, b = command("smoke", ["node", "dist/index.js"])
+                      require(a == b"Hello World!\n" and not b, "Unexpected TypeScript fixture output")
+                      status = "PASS"
+                  else:
+                      raise RuntimeError("No approved Node acceptance profile")
+                  if name in {"maps", "task0004"}:
+                      passed = re.findall(r"(?m)^# pass (\d+)\s*$", (a+b).decode(errors="replace"))
+                      require(bool(passed) and int(passed[-1]) > 0, "No passing Node tests")
+                      checks["test_count"] = int(passed[-1])
+                      status = "PASS"
+              elif name in {"_reyvortex_qayml_mytest001a1", "_reyvortex_mytest000a_arquivo", "task001"}:
+                  scope = "FIXTURE_CI"
+                  script = "task001.py" if name == "task001" else "mytest001b.py"
+                  expected = b"Hello, World!\n" if name == "task001" else b"HelloWorld!!\n"
+                  if name != "task001":
+                      require(unit("tests", ["discover", "-s", ".", "-v"]) > 0, "No executed fixture tests")
+                  a, b = command("fixture", [sys.executable, script])
+                  require(a == expected and not b, "Unexpected fixture output")
+                  status = "PASS"
+              elif name == "_TASK2014a-t01a-listAllFilesInGivenFolder":
+                  scope = "PYTHON_FIXTURE_CI"
+                  spec = importlib.util.spec_from_file_location("listfiles_qa", root / "__00-SCR_CODE/__00-SCR_CODE.py")
+                  module = importlib.util.module_from_spec(spec)
+                  spec.loader.exec_module(module)
+                  with tempfile.TemporaryDirectory() as tmp:
+                      base = pathlib.Path(tmp)
+                      inputs, outputs = base / "__01-input", base / "__02-output"
+                      inputs.mkdir()
+                      (inputs / "B.txt").write_text("abc")
+                      (inputs / "a.txt").write_text("hello")
+                      (inputs / "nested").mkdir()
+                      (inputs / "nested/ignored.txt").write_text("ignored")
+                      app = module.t01a_listAllFilesInGivenFolder(inputs, outputs)
+                      result = app.run()
+                      with pathlib.Path(result).open(encoding="utf-8-sig", newline="") as stream:
+                          rows = list(csv.DictReader(stream))
+                      require([r["File_Name"] for r in rows] == ["a.txt", "B.txt"], "CSV order or nonrecursive inventory failed")
+                      require([r["Size_Bytes"] for r in rows] == ["5", "3"], "CSV sizes failed")
+                  checks["fixture"] = "PASS"
+                  status = "PASS"
+              elif sources:
+                  scope = "PYTHON_CI"
+                  if name == "task1001c":
+                      command("dependencies", [sys.executable, "-m", "pip", "install", "-r", "requirements-dev.txt"])
+                      command("self-test", [sys.executable, "main.py", "--self-test"])
+                      status = "PASS"
+                  elif name == "task1001ui":
+                      command("dependencies", [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "pytest"])
+                      a, b = command("tests", [sys.executable, "-m", "pytest", "-q"])
+                      passed = re.findall(r"(\d+) passed", (a+b).decode(errors="replace"))
+                      require(bool(passed) and int(passed[-1]) > 0, "No passing pytest tests")
+                      checks["test_count"] = int(passed[-1])
+                      status = "PASS"
+                  else:
+                      deps = {"task0001a":["-r","requirements.txt"], "task0001b":["-r","requirements-dev.txt"], "task0003ui":["-r","requirements.txt"], "task1001z":["-r","requirements.txt"], "TASK2012a-mergePNG2PDF":["-r","requirements.txt","httpx>=0.27,<1"]}
+                      if name in deps:
+                          command("dependencies", [sys.executable, "-m", "pip", "install", *deps[name]])
+                      total = 0
+                      if any(p.parent == pathlib.Path(".") and p.name.startswith("test_") for p in sources):
+                          total += unit("root-tests", ["discover", "-s", ".", "-v"])
+                      if pathlib.Path("tests").is_dir():
+                          total += unit("nested-tests", ["discover", "-s", "tests", "-v"])
+                      checks["executed_non_skipped_tests"] = total
+                      status = "PASS" if total else "INCOMPLETE"
+              elif pathlib.Path("index.html").is_file():
+                  scope = "STATIC_SITE_CHECKS"
+                  pages = [p for p in files if p.suffix.lower() == ".html" and p.is_file()]
+                  for p in pages:
+                      data = p.read_text(encoding="utf-8-sig")
+                      require(bool(data.strip()), "Empty HTML file: " + str(p))
+                      parser = html.parser.HTMLParser()
+                      parser.feed(data)
+                      parser.close()
+                  for p in files:
+                      if p.name == "sitemap.xml":
+                          ElementTree.parse(p)
+                  checks["html_parse_count"] = len(pages)
+                  status = "PASS"
+              else:
+                  scope = "DOCUMENTATION_ONLY"
+                  readme = next((p for p in files if p.name.lower() == "readme.md"), None)
+                  require(readme is not None and bool(readme.read_text(encoding="utf-8-sig").strip()), "Missing or empty README")
+                  checks["readme_nonempty"] = True
+                  status = "PASS"
+          except Exception as exc:
+              checks["error"] = str(exc)
+              status = "FAIL"
+          report = {"schema_version": 1, "framework": "ReyVortex v0.2a", "repository": repo,
+                    "tested_sha": sha, "tree_sha": tree, "run_id": os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"],
+                    "scope": scope, "ci_status": status, "status": "FAIL" if status == "FAIL" else "INCOMPLETE",
+                    "checks": checks, "runtime_evidence": "NOT_RUN", "python_version": sys.version.split()[0]}
+          (out / "status.json").write_text(json.dumps(report, indent=2) + "\n")
+          manifest = {p.name: {"bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(out.iterdir()) if p.is_file()}
+          (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("status=" + status + "\n")
+          print(json.dumps(report, indent=2))
+          sys.exit(0 if status == "PASS" else 1)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reyvortex-ci-evidence
+          path: ${{ runner.temp }}/reyvortex/
+          if-no-files-found: error
